@@ -1,5 +1,5 @@
 from handlers import process_message
-from logger import log_message
+from database import log_message_db
 
 
 def main():
@@ -11,7 +11,10 @@ def main():
 
         response = process_message(user_input)
         print("Бот:", response)
-        log_message(user_input, response)
+
+        from patterns import bot
+        user_id = bot.current_user_id
+        log_message_db(user_id, user_input, response)
 
 
 if __name__ == "__main__":

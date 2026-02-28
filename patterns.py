@@ -1,11 +1,16 @@
 import re
 from datetime import datetime
+from weather_api import get_weather
+from database import init_db, save_user, log_message_db, log_weather_query
 
 
 class ChatBot:
     def __init__(self):
         self.name = None
+        self.current_user_id = None
+        self.waiting_for_name = False
         self.patterns = []
+        init_db()
         self.register_patterns()
 
     def register_patterns(self):
@@ -40,6 +45,7 @@ class ChatBot:
     def greet(self, match):
         if self.name:
             return f"Здравствуйте, {self.name}! Чем могу помочь?"
+        self.waiting_for_name = True
         return "Здравствуйте! Чем могу помочь? Как вас зовут?"
 
     def farewell(self, match):
@@ -49,11 +55,14 @@ class ChatBot:
 
     def set_name(self, match):
         self.name = match.group(1).capitalize()
+        self.current_user_id = save_user(self.name)
         return f"Приятно познакомиться, {self.name}!"
 
     def handle_weather(self, match):
         city = match.group(1).strip()
-        return f"Погода в городе {city}: солнечно, +18°C (демо-режим)."
+        if self.current_user_id:
+            log_weather_query(self.current_user_id, city)
+        return get_weather(city)
 
     def handle_addition(self, match):
         try:
@@ -77,8 +86,14 @@ class ChatBot:
 
     def process(self, message):
         import string
-        message_clean = message.lower().strip()
-        message_clean = message_clean.translate(str.maketrans('', '', string.punctuation))
+        message_clean = message.strip()
+
+        # Если бот ждёт имя — любое одиночное слово воспринимаем как имя
+        if self.waiting_for_name and re.match(r'^[а-яА-ЯёЁa-zA-Z]+$', message_clean):
+            self.waiting_for_name = False
+            self.name = message_clean.capitalize()
+            self.current_user_id = save_user(self.name)
+            return f"Приятно познакомиться, {self.name}!"
 
         for pattern, handler in self.patterns:
             match = pattern.search(message)
