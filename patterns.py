@@ -7,6 +7,10 @@ from spacy.matcher import Matcher
 
 from weather_api import get_weather, get_weather_forecast
 from database import init_db, save_user, log_weather_query
+from dialog_manager import (
+    DialogState, get_state, set_state,
+    get_user_data, set_user_data, reset_user_data
+)
 
 nlp = spacy.load("ru_core_news_sm")
 
@@ -18,17 +22,20 @@ matcher.add("WEATHER_QUERY", [
 ])
 
 DATE_KEYWORDS = {
-    "сегодня":   0,
-    "завтра":    1,
-    "послезавтра": 2,
+    "сегодня":       0,
+    "завтра":        1,
+    "послезавтра":   2,
     "через два дня": 2,
     "через 2 дня":   2,
 }
 
 WEEKDAYS = {
-    "понедельник": 0, "вторник": 1, "среду": 2, "среда": 2,
-    "четверг": 3, "пятницу": 4, "пятница": 4,
-    "субботу": 5, "суббота": 5, "воскресенье": 6, "воскресенье": 6,
+    "понедельник": 0, "вторник": 1,
+    "среду": 2,       "среда": 2,
+    "четверг": 3,
+    "пятницу": 4,     "пятница": 4,
+    "субботу": 5,     "суббота": 5,
+    "воскресенье": 6,
 }
 
 
@@ -57,7 +64,6 @@ def extract_city(text: str) -> str | None:
     for ent in doc.ents:
         if ent.label_ in ("GPE", "LOC"):
             lemma = ent.root.lemma_.capitalize()
-            print(f"[DEBUG] NER: {ent.text!r} -> {lemma!r}")
             return lemma
 
     m = re.search(r"\bв[о]?\s+([А-ЯЁ][а-яёА-ЯЁ\-]+)", text)
@@ -65,10 +71,8 @@ def extract_city(text: str) -> str | None:
         word = m.group(1)
         word_doc = nlp(word)
         lemma = word_doc[0].lemma_.capitalize() if word_doc else word
-        print(f"[DEBUG] Regex: {word!r} -> {lemma!r}")
         return lemma
 
-    print(f"[DEBUG] Город не найден в: {text!r}")
     return None
 
 
@@ -111,6 +115,50 @@ class ChatBot:
             (re.compile(r"(сколько|какое) (сейчас )?время", re.IGNORECASE), self.what_time)
         )
 
+    def handle_fsm(self, message: str):
+        uid = self.current_user_id
+        if uid is None:
+            return None
+
+        state = get_state(uid)
+
+        if state == DialogState.WAIT_CITY:
+            city = extract_city(message)
+            if not city:
+                city = message.strip().capitalize()
+
+            set_user_data(uid, "city", city)
+            set_state(uid, DialogState.WAIT_DATE)
+            return "На какую дату? (сегодня / завтра / послезавтра / день недели)"
+
+        if state == DialogState.WAIT_DATE:
+            offset, day_label = extract_date_offset(message)
+            city = get_user_data(uid).get("city", "")
+
+            set_state(uid, DialogState.START)
+            reset_user_data(uid)
+
+            if self.current_user_id:
+                log_weather_query(self.current_user_id, city)
+
+            if offset == 0:
+                return get_weather(city)
+            else:
+                return get_weather_forecast(city, offset, day_label)
+
+        return None
+
+    def _start_weather_dialog(self, city: str | None, message: str):
+        uid = self.current_user_id if self.current_user_id else "guest"
+
+        if city:
+            set_user_data(uid, "city", city)
+            set_state(uid, DialogState.WAIT_DATE)
+            return f"Город {city} определён. На какую дату? (сегодня / завтра / послезавтра / день недели)"
+        else:
+            set_state(uid, DialogState.WAIT_CITY)
+            return "В каком городе вас интересует погода?"
+
     def greet(self, match):
         if self.name:
             return f"Здравствуйте, {self.name}! Чем могу помочь?"
@@ -118,6 +166,9 @@ class ChatBot:
         return "Здравствуйте! Чем могу помочь? Как вас зовут?"
 
     def farewell(self, match):
+        if self.current_user_id:
+            set_state(self.current_user_id, DialogState.START)
+            reset_user_data(self.current_user_id)
         if self.name:
             return f"До свидания, {self.name}! Было приятно пообщаться."
         return "До свидания!"
@@ -130,20 +181,24 @@ class ChatBot:
     def handle_weather(self, match):
         original_text = match.string
         city = extract_city(original_text)
-
-        if not city:
-            return "Не могу определить город"
-
         offset, day_label = extract_date_offset(original_text)
-        print(f"[DEBUG] Дата: offset={offset}, label={day_label!r}")
 
         if self.current_user_id:
-            log_weather_query(self.current_user_id, city)
+            if city:
+                log_weather_query(self.current_user_id, city)
+                if offset == 0:
+                    return get_weather(city)
+                else:
+                    return get_weather_forecast(city, offset, day_label)
+            else:
+                return self._start_weather_dialog(None, original_text)
 
-        if offset == 0:
-            return get_weather(city)
-        else:
-            return get_weather_forecast(city, offset, day_label)
+        if city:
+            if offset == 0:
+                return get_weather(city)
+            else:
+                return get_weather_forecast(city, offset, day_label)
+        return "Не могу определить город. Например: «погода завтра в Москве»."
 
     def handle_addition(self, match):
         try:
@@ -163,18 +218,37 @@ class ChatBot:
     def what_time(self, match):
         return f"Сейчас {datetime.now().strftime('%H:%M')}"
 
+
     def process(self, message: str) -> str:
         message_clean = message.strip()
 
-        if self.waiting_for_name and re.match(r'^[а-яА-ЯёЁa-zA-Z]+$', message_clean):
+        fsm_uid = self.current_user_id if self.current_user_id else "guest"
+        fsm_state = get_state(fsm_uid)
+
+        if fsm_state in (DialogState.WAIT_CITY, DialogState.WAIT_DATE):
+            original_uid = self.current_user_id
+            self.current_user_id = fsm_uid
+            fsm_response = self.handle_fsm(message_clean)
+            self.current_user_id = original_uid
+            if fsm_response is not None:
+                return fsm_response
+
+
+        if (self.waiting_for_name
+                and re.match(r'^[а-яА-ЯёЁa-zA-Z]+$', message_clean)):
             self.waiting_for_name = False
             self.name = message_clean.capitalize()
             self.current_user_id = save_user(self.name)
             return f"Приятно познакомиться, {self.name}!"
 
+        fsm_response = self.handle_fsm(message_clean)
+        if fsm_response is not None:
+            return fsm_response
+
         if is_weather_query(message_clean):
             city = extract_city(message_clean)
             offset, day_label = extract_date_offset(message_clean)
+
             if city:
                 if self.current_user_id:
                     log_weather_query(self.current_user_id, city)
@@ -182,6 +256,8 @@ class ChatBot:
                     return get_weather(city)
                 else:
                     return get_weather_forecast(city, offset, day_label)
+            else:
+                return self._start_weather_dialog(None, message_clean)
 
         for pattern, handler in self.patterns:
             m = pattern.search(message)
