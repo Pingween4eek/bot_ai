@@ -1,0 +1,159 @@
+text,intent
+привет,greeting
+здравствуй,greeting
+добрый день,greeting
+приветствую,greeting
+хай,greeting
+здравствуйте,greeting
+доброе утро,greeting
+добрый вечер,greeting
+приветик,greeting
+ку,greeting
+хэй,greeting
+йоу,greeting
+салют,greeting
+дарова,greeting
+хелло,greeting
+доброго времени суток,greeting
+рад тебя видеть,greeting
+приветствую тебя,greeting
+hey,greeting
+hello,greeting
+скажи мне привет,greeting
+поздоровайся,greeting
+начнём,greeting
+начать,greeting
+привет бот,greeting
+здорово,greeting
+есть кто,greeting
+ау,greeting
+отзовись,greeting
+кто здесь,greeting
+какая погода,weather
+погода сегодня,weather
+какая погода сейчас,weather
+погода в Москве,weather
+погода завтра,weather
+скажи погоду,weather
+что с погодой,weather
+погода на завтра,weather
+будет ли дождь,weather
+погода в Казани,weather
+какая погода в Питере,weather
+погода на выходные,weather
+погода послезавтра,weather
+ожидается ли снег,weather
+погода в Новосибирске,weather
+нужна ли куртка,weather
+тепло ли на улице,weather
+погода в Лондоне,weather
+погода в пятницу,weather
+погода на неделю,weather
+будет ли солнечно,weather
+погода в субботу,weather
+жарко ли будет,weather
+холодно ли на улице,weather
+погода в Екатеринбурге,weather
+погода в воскресенье,weather
+прогноз погоды,weather
+погода на сегодня,weather
+какой прогноз,weather
+метеосводка,weather
+нужен ли зонт,weather
+погода на этой неделе,weather
+что за погода будет,weather
+идёт ли дождь,weather
+когда потеплеет,weather
+какая температура,weather
+температура на улице,weather
+сколько градусов,weather
+пока,goodbye
+до свидания,goodbye
+прощай,goodbye
+до встречи,goodbye
+бывай,goodbye
+выход,goodbye
+удачи,goodbye
+всего хорошего,goodbye
+покеда,goodbye
+до скорого,goodbye
+пока пока,goodbye
+счастливо,goodbye
+ухожу,goodbye
+завершить,goodbye
+закрыть,goodbye
+спасибо за разговор,goodbye
+не буду больше писать,goodbye
+всего доброго,goodbye
+увидимся,goodbye
+до завтра,goodbye
+пока друг,goodbye
+завершить диалог,goodbye
+выйти из чата,goodbye
+конец,goodbye
+хватит,goodbye
+достаточно,goodbye
+стоп,goodbye
+закончить,goodbye
+выйти,goodbye
+пора идти,goodbye
+мне пора,goodbye
+отключаюсь,goodbye
+как дела,smalltalk
+как ты,smalltalk
+как жизнь,smalltalk
+как поживаешь,smalltalk
+что нового,smalltalk
+как настроение,smalltalk
+чем занимаешься,smalltalk
+ты как,smalltalk
+как у тебя дела,smalltalk
+как ты себя чувствуешь,smalltalk
+как твои дела,smalltalk
+что делаешь,smalltalk
+расскажи что нибудь,smalltalk
+поговори со мной,smalltalk
+ты умный,smalltalk
+ты классный,smalltalk
+что умеешь,smalltalk
+чем можешь помочь,smalltalk
+интересно поговорили,smalltalk
+ты хорошо отвечаешь,smalltalk
+молодец,smalltalk
+ты мне нравишься,smalltalk
+умный бот,smalltalk
+помоги мне,smalltalk
+что можешь,smalltalk
+расскажи о себе,smalltalk
+ты бот,smalltalk
+ты человек,smalltalk
+всё хорошо у тебя,smalltalk
+как поживаете,smalltalk
+как себя чувствуешь,smalltalk
+всё нормально,smalltalk
+у тебя всё хорошо,smalltalk
+ты в порядке,smalltalk
+как твоё настроение,smalltalk
+скучно,smalltalk
+давай поговорим,smalltalk
+хочу поговорить,smalltalk
+поболтаем,smalltalk
+сколько времени,time
+который час,time
+сколько сейчас время,time
+какое сейчас время,time
+время,time
+скажи время,time
+который сейчас час,time
+текущее время,time
+что за время,time
+сколько времени сейчас,time
+узнать время,time
+подскажи время,time
+скажи который час,time
+сколько часов,time
+во сколько сейчас,time
+текущий час,time
+скоро ли вечер,time
+время сейчас,time
+который час сейчас,time

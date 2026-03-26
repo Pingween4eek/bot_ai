@@ -11,6 +11,7 @@ from dialog_manager import (
     DialogState, get_state, set_state,
     get_user_data, set_user_data, reset_user_data
 )
+from intent_classifier import predict_with_confidence, predict_intent
 
 nlp = spacy.load("ru_core_news_sm")
 
@@ -41,12 +42,10 @@ WEEKDAYS = {
 
 def extract_date_offset(text: str) -> tuple[int, str]:
     text_lower = text.lower()
-
     for keyword, offset in DATE_KEYWORDS.items():
         if keyword in text_lower:
             labels = {0: "сегодня", 1: "завтра", 2: "послезавтра"}
             return offset, labels.get(offset, f"через {offset} дня")
-
     today_wd = datetime.now().weekday()
     for word, target_wd in WEEKDAYS.items():
         if word in text_lower:
@@ -54,25 +53,19 @@ def extract_date_offset(text: str) -> tuple[int, str]:
             if offset == 0:
                 offset = 7
             return offset, word
-
     return 0, "сегодня"
 
 
 def extract_city(text: str) -> str | None:
     doc = nlp(text)
-
     for ent in doc.ents:
         if ent.label_ in ("GPE", "LOC"):
-            lemma = ent.root.lemma_.capitalize()
-            return lemma
-
+            return ent.root.lemma_.capitalize()
     m = re.search(r"\bв[о]?\s+([А-ЯЁ][а-яёА-ЯЁ\-]+)", text)
     if m:
         word = m.group(1)
         word_doc = nlp(word)
-        lemma = word_doc[0].lemma_.capitalize() if word_doc else word
-        return lemma
-
+        return word_doc[0].lemma_.capitalize() if word_doc else word
     return None
 
 
@@ -88,69 +81,49 @@ class ChatBot:
         self.name = None
         self.current_user_id = None
         self.waiting_for_name = False
-        self.patterns = []
         init_db()
-        self.register_patterns()
 
-    def register_patterns(self):
-        self.patterns.append(
-            (re.compile(r"^(привет|здравствуй|добрый день|здравствуйте)$", re.IGNORECASE), self.greet)
-        )
-        self.patterns.append(
-            (re.compile(r"^(пока|до свидания|выход)$", re.IGNORECASE), self.farewell)
-        )
-        self.patterns.append(
-            (re.compile(r"меня зовут ([а-яА-Яa-zA-Z]+)", re.IGNORECASE), self.set_name)
-        )
-        self.patterns.append(
-            (re.compile(r"погода", re.IGNORECASE), self.handle_weather)
-        )
-        self.patterns.append(
-            (re.compile(r"(\d+)\s*\+\s*(\d+)"), self.handle_addition)
-        )
-        self.patterns.append(
-            (re.compile(r"как (у тебя )?дела", re.IGNORECASE), self.how_are_you)
-        )
-        self.patterns.append(
-            (re.compile(r"(сколько|какое) (сейчас )?время", re.IGNORECASE), self.what_time)
-        )
+    def _handle_greeting(self) -> str:
+        if self.name:
+            return f"Здравствуйте, {self.name}! Чем могу помочь?"
+        self.waiting_for_name = True
+        return "Здравствуйте! Чем могу помочь? Как вас зовут?"
 
-    def handle_fsm(self, message: str):
-        uid = self.current_user_id
-        if uid is None:
-            return None
+    def _handle_farewell(self) -> str:
+        if self.current_user_id:
+            set_state(self.current_user_id, DialogState.START)
+            reset_user_data(self.current_user_id)
+        if self.name:
+            return f"До свидания, {self.name}! Было приятно пообщаться."
+        return "До свидания!"
 
-        state = get_state(uid)
+    def _handle_smalltalk(self) -> str:
+        return random.choice([
+            "Всё отлично, спасибо!",
+            "Хорошо, а у вас?",
+            "Прекрасно! Готов помочь.",
+            "Отлично! Чем могу быть полезен?",
+        ])
 
-        if state == DialogState.WAIT_CITY:
-            city = extract_city(message)
-            if not city:
-                city = message.strip().capitalize()
+    def _handle_time(self) -> str:
+        return f"Сейчас {datetime.now().strftime('%H:%M')}"
 
-            set_user_data(uid, "city", city)
-            set_state(uid, DialogState.WAIT_DATE)
-            return "На какую дату? (сегодня / завтра / послезавтра / день недели)"
+    def _handle_weather(self, message: str) -> str:
+        city   = extract_city(message)
+        offset, day_label = extract_date_offset(message)
 
-        if state == DialogState.WAIT_DATE:
-            offset, day_label = extract_date_offset(message)
-            city = get_user_data(uid).get("city", "")
-
-            set_state(uid, DialogState.START)
-            reset_user_data(uid)
-
+        if city:
             if self.current_user_id:
                 log_weather_query(self.current_user_id, city)
-
             if offset == 0:
                 return get_weather(city)
             else:
                 return get_weather_forecast(city, offset, day_label)
+        else:
+            return self._start_weather_dialog(None, message)
 
-        return None
-
-    def _start_weather_dialog(self, city: str | None, message: str):
+    def _start_weather_dialog(self, city: str | None, message: str) -> str:
         uid = self.current_user_id if self.current_user_id else "guest"
-
         if city:
             set_user_data(uid, "city", city)
             set_state(uid, DialogState.WAIT_DATE)
@@ -159,70 +132,33 @@ class ChatBot:
             set_state(uid, DialogState.WAIT_CITY)
             return "В каком городе вас интересует погода?"
 
-    def greet(self, match):
-        if self.name:
-            return f"Здравствуйте, {self.name}! Чем могу помочь?"
-        self.waiting_for_name = True
-        return "Здравствуйте! Чем могу помочь? Как вас зовут?"
+    def handle_fsm(self, message: str) -> str | None:
+        uid = self.current_user_id if self.current_user_id else "guest"
+        state = get_state(uid)
 
-    def farewell(self, match):
-        if self.current_user_id:
-            set_state(self.current_user_id, DialogState.START)
-            reset_user_data(self.current_user_id)
-        if self.name:
-            return f"До свидания, {self.name}! Было приятно пообщаться."
-        return "До свидания!"
+        if state == DialogState.WAIT_CITY:
+            city = extract_city(message) or message.strip().capitalize()
+            set_user_data(uid, "city", city)
+            set_state(uid, DialogState.WAIT_DATE)
+            return "На какую дату? (сегодня / завтра / послезавтра / день недели)"
 
-    def set_name(self, match):
-        self.name = match.group(1).capitalize()
-        self.current_user_id = save_user(self.name)
-        return f"Приятно познакомиться, {self.name}!"
-
-    def handle_weather(self, match):
-        original_text = match.string
-        city = extract_city(original_text)
-        offset, day_label = extract_date_offset(original_text)
-
-        if self.current_user_id:
-            if city:
+        if state == DialogState.WAIT_DATE:
+            offset, day_label = extract_date_offset(message)
+            city = get_user_data(uid).get("city", "")
+            set_state(uid, DialogState.START)
+            reset_user_data(uid)
+            if self.current_user_id:
                 log_weather_query(self.current_user_id, city)
-                if offset == 0:
-                    return get_weather(city)
-                else:
-                    return get_weather_forecast(city, offset, day_label)
-            else:
-                return self._start_weather_dialog(None, original_text)
-
-        if city:
             if offset == 0:
                 return get_weather(city)
             else:
                 return get_weather_forecast(city, offset, day_label)
-        return "Не могу определить город. Например: «погода завтра в Москве»."
 
-    def handle_addition(self, match):
-        try:
-            a = float(match.group(1))
-            b = float(match.group(2))
-            return f"Результат сложения: {a} + {b} = {a + b}"
-        except Exception:
-            return "Не удалось выполнить сложение"
-
-    def how_are_you(self, match):
-        return random.choice([
-            "Всё отлично, спасибо!",
-            "Хорошо, а у вас?",
-            "Прекрасно! Готов помочь.",
-        ])
-
-    def what_time(self, match):
-        return f"Сейчас {datetime.now().strftime('%H:%M')}"
-
+        return None
 
     def process(self, message: str) -> str:
         message_clean = message.strip()
-
-        fsm_uid = self.current_user_id if self.current_user_id else "guest"
+        fsm_uid   = self.current_user_id if self.current_user_id else "guest"
         fsm_state = get_state(fsm_uid)
 
         if fsm_state in (DialogState.WAIT_CITY, DialogState.WAIT_DATE):
@@ -233,37 +169,34 @@ class ChatBot:
             if fsm_response is not None:
                 return fsm_response
 
-
-        if (self.waiting_for_name
-                and re.match(r'^[а-яА-ЯёЁa-zA-Z]+$', message_clean)):
+        if self.waiting_for_name and re.match(r'^[а-яА-ЯёЁa-zA-Z]+$', message_clean):
             self.waiting_for_name = False
             self.name = message_clean.capitalize()
             self.current_user_id = save_user(self.name)
             return f"Приятно познакомиться, {self.name}!"
 
-        fsm_response = self.handle_fsm(message_clean)
-        if fsm_response is not None:
-            return fsm_response
+        intent, confidence = predict_with_confidence(message_clean)
+        print(f"[ML] intent={intent!r}, confidence={confidence:.2f}")
 
-        if is_weather_query(message_clean):
-            city = extract_city(message_clean)
-            offset, day_label = extract_date_offset(message_clean)
+        if confidence < 0.3:
+            return "Я не уверен что понял вас. Попробуйте переформулировать."
 
-            if city:
-                if self.current_user_id:
-                    log_weather_query(self.current_user_id, city)
-                if offset == 0:
-                    return get_weather(city)
-                else:
-                    return get_weather_forecast(city, offset, day_label)
-            else:
-                return self._start_weather_dialog(None, message_clean)
+        if intent == "greeting":
+            return self._handle_greeting()
 
-        for pattern, handler in self.patterns:
-            m = pattern.search(message)
-            if m:
-                return handler(m)
+        if intent == "goodbye":
+            return self._handle_farewell()
 
+        if intent == "smalltalk":
+            return self._handle_smalltalk()
+
+        if intent == "time":
+            return self._handle_time()
+
+        if intent == "weather":
+            return self._handle_weather(message_clean)
+
+        # 5. Если интент неизвестен
         return "я не понимаю этот запрос"
 
 
