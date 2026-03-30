@@ -11,9 +11,9 @@ from dialog_manager import (
     DialogState, get_state, set_state,
     get_user_data, set_user_data, reset_user_data
 )
-from intent_classifier import predict_with_confidence, predict_intent
+from intent_classifier import predict_with_confidence
 
-nlp = spacy.load("ru_core_news_sm")
+nlp = spacy.load("ru_core_news_md")
 
 matcher = Matcher(nlp.vocab)
 matcher.add("WEATHER_QUERY", [
@@ -37,6 +37,28 @@ WEEKDAYS = {
     "пятницу": 4,     "пятница": 4,
     "субботу": 5,     "суббота": 5,
     "воскресенье": 6,
+}
+
+EXACT_COMMANDS = {
+    # goodbye
+    "пока":          "goodbye",
+    "стоп":          "goodbye",
+    "выход":         "goodbye",
+    "выйти":         "goodbye",
+    "конец":         "goodbye",
+    "хватит":        "goodbye",
+    "всё":           "goodbye",
+    "закончить":     "goodbye",
+    "завершить":     "goodbye",
+    # greeting
+    "привет":        "greeting",
+    "хай":           "greeting",
+    "салют":         "greeting",
+    "ку":            "greeting",
+    "йоу":           "greeting",
+    # time
+    "время":         "time",
+    "час":           "time",
 }
 
 
@@ -109,9 +131,8 @@ class ChatBot:
         return f"Сейчас {datetime.now().strftime('%H:%M')}"
 
     def _handle_weather(self, message: str) -> str:
-        city   = extract_city(message)
+        city = extract_city(message)
         offset, day_label = extract_date_offset(message)
-
         if city:
             if self.current_user_id:
                 log_weather_query(self.current_user_id, city)
@@ -121,6 +142,19 @@ class ChatBot:
                 return get_weather_forecast(city, offset, day_label)
         else:
             return self._start_weather_dialog(None, message)
+
+    def _route_intent(self, intent: str, message: str) -> str:
+        if intent == "greeting":
+            return self._handle_greeting()
+        if intent == "goodbye":
+            return self._handle_farewell()
+        if intent == "smalltalk":
+            return self._handle_smalltalk()
+        if intent == "time":
+            return self._handle_time()
+        if intent == "weather":
+            return self._handle_weather(message)
+        return "я не понимаю этот запрос"
 
     def _start_weather_dialog(self, city: str | None, message: str) -> str:
         uid = self.current_user_id if self.current_user_id else "guest"
@@ -175,29 +209,16 @@ class ChatBot:
             self.current_user_id = save_user(self.name)
             return f"Приятно познакомиться, {self.name}!"
 
+        if message_clean.lower() in EXACT_COMMANDS:
+            intent = EXACT_COMMANDS[message_clean.lower()]
+            return self._route_intent(intent, message_clean)
         intent, confidence = predict_with_confidence(message_clean)
         print(f"[ML] intent={intent!r}, confidence={confidence:.2f}")
 
         if confidence < 0.3:
             return "Я не уверен что понял вас. Попробуйте переформулировать."
 
-        if intent == "greeting":
-            return self._handle_greeting()
-
-        if intent == "goodbye":
-            return self._handle_farewell()
-
-        if intent == "smalltalk":
-            return self._handle_smalltalk()
-
-        if intent == "time":
-            return self._handle_time()
-
-        if intent == "weather":
-            return self._handle_weather(message_clean)
-
-        # 5. Если интент неизвестен
-        return "я не понимаю этот запрос"
+        return self._route_intent(intent, message_clean)
 
 
 bot = ChatBot()
