@@ -39,26 +39,22 @@ WEEKDAYS = {
     "воскресенье": 6,
 }
 
+
 EXACT_COMMANDS = {
-    # goodbye
-    "пока":          "goodbye",
-    "стоп":          "goodbye",
-    "выход":         "goodbye",
-    "выйти":         "goodbye",
-    "конец":         "goodbye",
-    "хватит":        "goodbye",
-    "всё":           "goodbye",
-    "закончить":     "goodbye",
-    "завершить":     "goodbye",
-    # greeting
-    "привет":        "greeting",
-    "хай":           "greeting",
-    "салют":         "greeting",
-    "ку":            "greeting",
-    "йоу":           "greeting",
-    # time
-    "время":         "time",
-    "час":           "time",
+    "пока":      "goodbye",
+    "стоп":      "goodbye",
+    "выход":     "goodbye",
+    "выйти":     "goodbye",
+    "конец":     "goodbye",
+    "хватит":    "goodbye",
+    "закончить": "goodbye",
+    "завершить": "goodbye",
+    "привет":    "greeting",
+    "хай":       "greeting",
+    "салют":     "greeting",
+    "ку":        "greeting",
+    "время":     "time",
+    "час":       "time",
 }
 
 
@@ -85,22 +81,15 @@ def extract_city(text: str) -> str | None:
             return ent.root.lemma_.capitalize()
     m = re.search(r"\bв[о]?\s+([А-ЯЁ][а-яёА-ЯЁ\-]+)", text)
     if m:
-        word = m.group(1)
+        word    = m.group(1)
         word_doc = nlp(word)
         return word_doc[0].lemma_.capitalize() if word_doc else word
     return None
 
 
-def is_weather_query(text: str) -> bool:
-    doc = nlp(text)
-    if matcher(doc):
-        return True
-    return "погода" in text.lower()
-
-
 class ChatBot:
     def __init__(self):
-        self.name = None
+        self.name            = None
         self.current_user_id = None
         self.waiting_for_name = False
         init_db()
@@ -136,24 +125,16 @@ class ChatBot:
         if city:
             if self.current_user_id:
                 log_weather_query(self.current_user_id, city)
-            if offset == 0:
-                return get_weather(city)
-            else:
-                return get_weather_forecast(city, offset, day_label)
+            return get_weather(city) if offset == 0 else get_weather_forecast(city, offset, day_label)
         else:
             return self._start_weather_dialog(None, message)
 
     def _route_intent(self, intent: str, message: str) -> str:
-        if intent == "greeting":
-            return self._handle_greeting()
-        if intent == "goodbye":
-            return self._handle_farewell()
-        if intent == "smalltalk":
-            return self._handle_smalltalk()
-        if intent == "time":
-            return self._handle_time()
-        if intent == "weather":
-            return self._handle_weather(message)
+        if intent == "greeting":  return self._handle_greeting()
+        if intent == "goodbye":   return self._handle_farewell()
+        if intent == "smalltalk": return self._handle_smalltalk()
+        if intent == "time":      return self._handle_time()
+        if intent == "weather":   return self._handle_weather(message)
         return "я не понимаю этот запрос"
 
     def _start_weather_dialog(self, city: str | None, message: str) -> str:
@@ -167,7 +148,7 @@ class ChatBot:
             return "В каком городе вас интересует погода?"
 
     def handle_fsm(self, message: str) -> str | None:
-        uid = self.current_user_id if self.current_user_id else "guest"
+        uid   = self.current_user_id if self.current_user_id else "guest"
         state = get_state(uid)
 
         if state == DialogState.WAIT_CITY:
@@ -183,10 +164,7 @@ class ChatBot:
             reset_user_data(uid)
             if self.current_user_id:
                 log_weather_query(self.current_user_id, city)
-            if offset == 0:
-                return get_weather(city)
-            else:
-                return get_weather_forecast(city, offset, day_label)
+            return get_weather(city) if offset == 0 else get_weather_forecast(city, offset, day_label)
 
         return None
 
@@ -196,26 +174,26 @@ class ChatBot:
         fsm_state = get_state(fsm_uid)
 
         if fsm_state in (DialogState.WAIT_CITY, DialogState.WAIT_DATE):
-            original_uid = self.current_user_id
+            original_uid         = self.current_user_id
             self.current_user_id = fsm_uid
-            fsm_response = self.handle_fsm(message_clean)
+            fsm_response         = self.handle_fsm(message_clean)
             self.current_user_id = original_uid
             if fsm_response is not None:
                 return fsm_response
 
         if self.waiting_for_name and re.match(r'^[а-яА-ЯёЁa-zA-Z]+$', message_clean):
             self.waiting_for_name = False
-            self.name = message_clean.capitalize()
-            self.current_user_id = save_user(self.name)
+            self.name             = message_clean.capitalize()
+            self.current_user_id  = save_user(self.name)
             return f"Приятно познакомиться, {self.name}!"
 
         if message_clean.lower() in EXACT_COMMANDS:
             intent = EXACT_COMMANDS[message_clean.lower()]
             return self._route_intent(intent, message_clean)
         intent, confidence = predict_with_confidence(message_clean)
-        print(f"[ML] intent={intent!r}, confidence={confidence:.2f}")
+        print(f"[BERT] intent={intent!r}, confidence={confidence:.2f}")
 
-        if confidence < 0.3:
+        if confidence < 0.5:
             return "Я не уверен что понял вас. Попробуйте переформулировать."
 
         return self._route_intent(intent, message_clean)

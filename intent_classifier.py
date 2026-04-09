@@ -1,40 +1,46 @@
-"""
-Модуль определения интента через Word Embeddings (spaCy + LogisticRegression).
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-Вместо TF-IDF каждое слово превращается в вектор из 300 чисел,
-затем spaCy усредняет их в один вектор предложения.
-Это позволяет понимать семантически близкие слова:
-    "дождь" ~ "осадки" ~ "ливень"  (близкие векторы)
-    "дождь" vs "кошка"             (далёкие векторы)
-"""
+MODEL_PATH = "intent_model"
 
-import numpy as np
-import joblib
-import spacy
+print("Загрузка BERT модели...")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+model     = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+model.eval()
 
-# ru_core_news_md обязательна — содержит векторы слов
-nlp = spacy.load("ru_core_news_md")
-
-# Загрузка обученного классификатора
-_model = joblib.load("intent_model.pkl")
+id2label = model.config.id2label
+print(f"Модель загружена. Интенты: {list(id2label.values())}")
 
 
-def vectorize(text: str) -> np.ndarray:
-    """Преобразует текст в вектор через Word Embeddings spaCy."""
-    doc = nlp(text.lower())
-    return doc.vector  # shape (300,)
-
-
-def predict_intent(text: str) -> str:
-    """Возвращает интент для текста."""
-    vec = vectorize(text).reshape(1, -1)
-    return _model.predict(vec)[0]
+_bert_cache: dict[str, tuple[str, float]] = {}
 
 
 def predict_with_confidence(text: str) -> tuple[str, float]:
-    """Возвращает интент и уверенность модели (0.0 — 1.0)."""
-    vec        = vectorize(text).reshape(1, -1)
-    proba      = _model.predict_proba(vec)
-    intent     = _model.predict(vec)[0]
-    confidence = max(proba[0])
-    return intent, confidence
+    if text in _bert_cache:
+        return _bert_cache[text]
+
+    # Токенизация
+    inputs = tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        padding=True,
+    )
+
+    with torch.no_grad():
+        outputs = model(**inputs)
+
+    logits          = outputs.logits
+    proba           = torch.softmax(logits, dim=1)
+    predicted_class = torch.argmax(logits, dim=1).item()
+    confidence      = proba[0][predicted_class].item()
+    intent          = id2label[predicted_class]
+
+    result = (intent, confidence)
+    _bert_cache[text] = result
+    return result
+
+
+def predict_intent(text: str) -> str:
+    intent, _ = predict_with_confidence(text)
+    return intent
