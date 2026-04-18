@@ -12,6 +12,7 @@ from dialog_manager import (
     get_user_data, set_user_data, reset_user_data
 )
 from intent_classifier import predict_with_confidence
+from skills import WeatherSkill, TimeSkill, DateSkill, SmallTalkSkill, HelpSkill
 
 nlp = spacy.load("ru_core_news_md")
 
@@ -55,7 +56,27 @@ EXACT_COMMANDS = {
     "ку":        "greeting",
     "время":     "time",
     "час":       "time",
+    "дата":      "date",
+    "число":     "date",
+    "помощь":    "help",
+    "справка":   "help",
 }
+
+# Ключевые слова для поиска внутри фразы
+KEYWORD_INTENTS: list[tuple[list[str], str]] = [
+    (["привет", "здравствуй", "здравствуйте", "здрасьте", "хелло",
+      "добрый день", "доброе утро", "добрый вечер", "хай", "салют",
+      "дарова", "хэй", "йоу"], "greeting"),
+    (["пока", "до свидания", "прощай", "бывай", "до встречи",
+      "всего хорошего", "всего доброго", "увидимся"], "goodbye"),
+    (["погода", "температура", "дождь", "снег", "прогноз",
+      "солнечно", "облачно", "ветер", "осадки"], "weather"),
+    (["сколько времени", "который час", "текущее время"], "time"),
+    (["какое число", "какая дата", "сегодняшняя дата",
+      "текущая дата", "какой день"], "date"),
+    (["что умеешь", "что можешь", "помощь", "справка",
+      "список команд", "как пользоваться"], "help"),
+]
 
 
 def extract_date_offset(text: str) -> tuple[int, str]:
@@ -94,6 +115,12 @@ class ChatBot:
         self.waiting_for_name = False
         init_db()
 
+        self._weather_skill  = WeatherSkill()
+        self._time_skill     = TimeSkill()
+        self._date_skill     = DateSkill()
+        self._smalltalk_skill = SmallTalkSkill()
+        self._help_skill     = HelpSkill()
+
     def _handle_greeting(self) -> str:
         if self.name:
             return f"Здравствуйте, {self.name}! Чем могу помочь?"
@@ -109,15 +136,16 @@ class ChatBot:
         return "До свидания!"
 
     def _handle_smalltalk(self) -> str:
-        return random.choice([
-            "Всё отлично, спасибо!",
-            "Хорошо, а у вас?",
-            "Прекрасно! Готов помочь.",
-            "Отлично! Чем могу быть полезен?",
-        ])
+        return self._smalltalk_skill.handle()
 
     def _handle_time(self) -> str:
-        return f"Сейчас {datetime.now().strftime('%H:%M')}"
+        return self._time_skill.handle()
+
+    def _handle_date(self) -> str:
+        return self._date_skill.handle()
+
+    def _handle_help(self) -> str:
+        return self._help_skill.handle()
 
     def _handle_weather(self, message: str) -> str:
         city = extract_city(message)
@@ -125,7 +153,7 @@ class ChatBot:
         if city:
             if self.current_user_id:
                 log_weather_query(self.current_user_id, city)
-            return get_weather(city) if offset == 0 else get_weather_forecast(city, offset, day_label)
+            return self._weather_skill.handle(city, offset, day_label)
         else:
             return self._start_weather_dialog(None, message)
 
@@ -134,6 +162,8 @@ class ChatBot:
         if intent == "goodbye":   return self._handle_farewell()
         if intent == "smalltalk": return self._handle_smalltalk()
         if intent == "time":      return self._handle_time()
+        if intent == "date":      return self._handle_date()
+        if intent == "help":      return self._handle_help()
         if intent == "weather":   return self._handle_weather(message)
         return "я не понимаю этот запрос"
 
@@ -170,6 +200,7 @@ class ChatBot:
 
     def process(self, message: str) -> str:
         message_clean = message.strip()
+        message_lower = message_clean.lower()
         fsm_uid   = self.current_user_id if self.current_user_id else "guest"
         fsm_state = get_state(fsm_uid)
 
@@ -187,13 +218,20 @@ class ChatBot:
             self.current_user_id  = save_user(self.name)
             return f"Приятно познакомиться, {self.name}!"
 
-        if message_clean.lower() in EXACT_COMMANDS:
-            intent = EXACT_COMMANDS[message_clean.lower()]
+        if message_lower in EXACT_COMMANDS:
+            intent = EXACT_COMMANDS[message_lower]
             return self._route_intent(intent, message_clean)
+
+        for keywords, kw_intent in KEYWORD_INTENTS:
+            for kw in keywords:
+                if kw in message_lower:
+                    print(f"[KW] intent={kw_intent!r}, matched keyword={kw!r}")
+                    return self._route_intent(kw_intent, message_clean)
+
         intent, confidence = predict_with_confidence(message_clean)
         print(f"[BERT] intent={intent!r}, confidence={confidence:.2f}")
 
-        if confidence < 0.5:
+        if confidence < 0.35:
             return "Я не уверен что понял вас. Попробуйте переформулировать."
 
         return self._route_intent(intent, message_clean)

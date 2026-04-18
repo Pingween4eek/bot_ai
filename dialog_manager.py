@@ -1,8 +1,12 @@
 class DialogState:
-    START     = "start"
-    WAIT_CITY = "wait_city"
-    WAIT_DATE = "wait_date"
+    START        = "start"
+    WAIT_CITY    = "wait_city"
+    WAIT_DATE    = "wait_date"
     SHOW_WEATHER = "show_weather"
+    SHOW_TIME    = "show_time"
+    SHOW_DATE    = "show_date"
+    SHOW_HELP    = "show_help"
+    SMALLTALK    = "smalltalk"
 
 
 _user_states: dict = {}

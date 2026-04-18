@@ -110,6 +110,10 @@ test_phrases = [
     "погода завтра в Москве",
     "сколько сейчас время",
     "будут ли осадки завтра",
+    "какое сегодня число",
+    "какая сегодня дата",
+    "что ты умеешь",
+    "помощь",
 ]
 for phrase in test_phrases:
     inputs = tokenizer(phrase, return_tensors="pt", truncation=True)
