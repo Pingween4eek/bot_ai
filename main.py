@@ -1,8 +1,11 @@
 from handlers import process_message
 from database import log_message_db
+from tts_engine import voice_reply, preload
 
 
 def main():
+    preload()
+
     print("Бот запущен")
     while True:
         user_input = input("Вы: ")
@@ -11,6 +14,8 @@ def main():
 
         response = process_message(user_input)
         print("Бот:", response)
+
+        voice_reply(response)
 
         from patterns import bot
         user_id = bot.current_user_id
