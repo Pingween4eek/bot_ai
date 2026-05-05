@@ -1,15 +1,24 @@
 from handlers import process_message
 from database import log_message_db
 from tts_engine import voice_reply, preload
+from voice import listen, clean_asr_text
 
 
 def main():
     preload()
 
-    print("Бот запущен")
+    print("Бот запущен (голосовой режим). Скажите 'выход' для завершения.")
     while True:
-        user_input = input("Вы: ")
-        if user_input.lower() == 'выход':
+        user_input = clean_asr_text(listen())
+
+        if not user_input:
+            print("[ASR] Не удалось распознать речь, попробуйте ещё раз.")
+            continue
+
+        print("Вы:", user_input)
+
+        if "выход" in user_input:
+            print("Бот: До свидания!")
             break
 
         response = process_message(user_input)
